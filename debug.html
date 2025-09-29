@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SmashBoard - Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f0f0f0; }
+        .error { background: #ffebee; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .info { background: #e3f2fd; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .logs { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 10px 0; font-family: monospace; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .refresh { background: #4caf50; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px 5px; }
+        .test-btn { background: #2196f3; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 10px 5px; }
+    </style>
+</head>
+<body>
+    <h1>SmashBoard Debug Page</h1>
+    <div class="error">
+        <h2>Main Application Failed to Load</h2>
+        <p>This is a fallback debug page. The main Next.js application could not be loaded.</p>
+        <p><strong>Current URL:</strong> <span id="currentUrl"></span></p>
+        <p><strong>User Agent:</strong> <span id="userAgent"></span></p>
+        <p><strong>Time:</strong> <span id="currentTime"></span></p>
+    </div>
+    
+    <button class="refresh" onclick="location.reload()">Refresh This Page</button>
+    <button class="test-btn" onclick="testMainApp()">Try Loading Main App</button>
+    <button class="test-btn" onclick="showFileSystem()">Show File System</button>
+    
+    <div class="info">
+        <h3>Debug Info:</h3>
+        <div id="debugInfo" class="logs"></div>
+    </div>
+    
+    <div class="info">
+        <h3>Console Logs:</h3>
+        <div id="consoleLogs" class="logs"></div>
+    </div>
+
+    <script>
+        // Update current info
+        document.getElementById('currentUrl').textContent = window.location.href;
+        document.getElementById('userAgent').textContent = navigator.userAgent;
+        document.getElementById('currentTime').textContent = new Date().toISOString();
+        
+        // Capture console logs
+        const originalLog = console.log;
+        const originalError = console.error;
+        const logsDiv = document.getElementById('consoleLogs');
+        
+        function addLog(type, ...args) {
+            const timestamp = new Date().toISOString().split('T')[1].split('.')[0];
+            const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : String(arg)).join(' ');
+            logsDiv.textContent += `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+        }
+        
+        console.log = function(...args) {
+            addLog('log', ...args);
+            originalLog.apply(console, args);
+        };
+        
+        console.error = function(...args) {
+            addLog('error', ...args);
+            originalError.apply(console, args);
+        };
+        
+        // Test functions
+        function testMainApp() {
+            console.log('Attempting to load main app...');
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+            iframe.onload = () => console.log('Main app iframe loaded successfully');
+            iframe.onerror = (e) => console.error('Main app iframe failed:', e);
+            iframe.src = './index.html';
+            document.body.appendChild(iframe);
+        }
+        
+        function showFileSystem() {
+            // This will be populated by Electron if available
+            console.log('File system info will be shown in Electron logs');
+            if (window.electronAPI) {
+                console.log('Electron API available');
+            } else {
+                console.log('No Electron API available');
+            }
+        }
+        
+        // Show some basic debug info
+        const debugInfo = document.getElementById('debugInfo');
+        debugInfo.textContent = `
+Location: ${window.location.href}
+Protocol: ${window.location.protocol}
+Host: ${window.location.host}
+Pathname: ${window.location.pathname}
+Search: ${window.location.search}
+Hash: ${window.location.hash}
+Origin: ${window.location.origin}
+
+Document Ready State: ${document.readyState}
+Document Title: ${document.title}
+Document URL: ${document.URL}
+Base URI: ${document.baseURI}
+
+Navigator:
+- Platform: ${navigator.platform}
+- Language: ${navigator.language}
+- Cookies Enabled: ${navigator.cookieEnabled}
+- Online: ${navigator.onLine}
+        `;
+        
+        console.log('Debug page loaded successfully');
+        console.log('Checking for main app at ./index.html');
+    </script>
+</body>
+</html>
