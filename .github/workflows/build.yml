@@ -55,12 +55,14 @@ jobs:
       env:
         CSC_IDENTITY_AUTO_DISCOVERY: false
         DEBUG: electron-builder
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
     - name: Build Electron app for Windows
       if: matrix.os == 'windows-latest'
       run: npm run dist:win
       env:
         DEBUG: electron-builder
+        GH_TOKEN: ${{ secrets.GH_TOKEN }}
 
     - name: Upload macOS artifacts
       if: matrix.os == 'macos-latest'
