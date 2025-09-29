@@ -1,4 +1,4 @@
-import { Player } from '../../db/adapter';
+import type { Player } from '../../db/adapter';
 
 interface MatchWithDetails {
   id?: number;
@@ -27,6 +27,7 @@ interface DatabaseAPI {
 interface ElectronAPI {
   // New organized database API
   db: DatabaseAPI;
+  diagnostics: DiagnosticsAPI;
   
   // Legacy API for backward compatibility
   getPlayers: () => Promise<Player[]>;
@@ -40,11 +41,34 @@ interface ElectronAPI {
   // App operations
   getVersion: () => string;
   getPlatform: () => string;
+  // Renderer environment flag
+  isElectron: boolean;
+}
+
+export interface DiagnosticsStatus {
+  timestamp: string;
+  isDev: boolean;
+  electronVersion: string;
+  nodeVersion: string;
+  chromeVersion: string;
+  dbPath: string;
+  dbExists: boolean;
+  dbSize: number | null;
+  playerCount: number | null;
+  dbError: string | null;
+  serverPort: number;
+  serverAddress: string | null;
+}
+
+export interface DiagnosticsAPI {
+  getStatus: () => Promise<DiagnosticsStatus>;
 }
 
 declare global {
   interface Window {
     electronAPI: ElectronAPI;
+    // Flag exposed by preload to detect Electron renderer
+    isElectron: boolean;
   }
 }
 

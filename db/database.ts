@@ -1,34 +1,45 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 
 export class DatabaseManager {
   private db: Database.Database;
   private static instance: DatabaseManager;
+  private readonly dbPath: string;
 
   private constructor() {
     let dbPath: string;
     
     try {
-      // Try to use Electron's app module
+      // Use Electron's app module for userData
       const { app } = require('electron');
-      dbPath = path.join(app.getPath('userData'), 'smashboard.db');
+      const userDbDir = app.getPath('userData');
+      const userDbPath = path.join(userDbDir, 'smashboard.db');
+      // If a pre-seeded DB is bundled at dist/db, copy it to userData on first launch
+      try {
+        const appPath = app.getAppPath();
+        const bundledDb = path.join(appPath, 'dist', 'db', 'smashboard.db');
+        if (!fs.existsSync(userDbPath) && fs.existsSync(bundledDb)) {
+          fs.mkdirSync(path.dirname(userDbPath), { recursive: true });
+          fs.copyFileSync(bundledDb, userDbPath);
+          console.log(`Copied bundled DB from ${bundledDb} to ${userDbPath}`);
+        }
+      } catch {}
+      dbPath = userDbPath;
     } catch (error) {
-      // Fallback for standalone Node.js environment (e.g., testing, seeding)
+      // Fallback for non-Electron (testing, seeding, etc.)
       const homeDir = os.homedir();
       const appDataDir = path.join(homeDir, '.smashboard');
-      
-      // Create directory if it doesn't exist
-      const fs = require('fs');
       if (!fs.existsSync(appDataDir)) {
         fs.mkdirSync(appDataDir, { recursive: true });
       }
-      
       dbPath = path.join(appDataDir, 'smashboard.db');
     }
     
-    console.log(`Opening database at: ${dbPath}`);
-    this.db = new Database(dbPath);
+  console.log(`Opening database at: ${dbPath}`);
+  this.dbPath = dbPath;
+  this.db = new Database(dbPath);
     this.initializeTables();
   }
 
@@ -193,6 +204,10 @@ export class DatabaseManager {
 
   getDatabase(): Database.Database {
     return this.db;
+  }
+
+  getDatabasePath(): string {
+    return this.dbPath;
   }
 
   close(): void {

@@ -2,12 +2,59 @@ import { DBAdapter } from '../db/adapter';
 import { DatabaseManager } from '../db/database';
 import Database from 'better-sqlite3';
 
+function initializeSchema(db: any) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS players (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        tag TEXT UNIQUE,
+        main_character TEXT,
+        secondary_character TEXT,
+        rating INTEGER DEFAULT 1200,
+        level INTEGER DEFAULT 1,
+        wins INTEGER DEFAULT 0,
+        losses INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS matches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        match_type TEXT NOT NULL DEFAULT 'singles',
+        playerA_id INTEGER NOT NULL,
+        playerB_id INTEGER NOT NULL,
+        playerC_id INTEGER,
+        playerD_id INTEGER,
+        teamA_score INTEGER NOT NULL,
+        teamB_score INTEGER NOT NULL,
+        winning_team TEXT NOT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        scoreA INTEGER,
+        scoreB INTEGER,
+        winner_id INTEGER,
+        FOREIGN KEY (playerA_id) REFERENCES players (id),
+        FOREIGN KEY (playerB_id) REFERENCES players (id),
+        FOREIGN KEY (playerC_id) REFERENCES players (id),
+        FOREIGN KEY (playerD_id) REFERENCES players (id),
+        FOREIGN KEY (winner_id) REFERENCES players (id)
+      )
+    `);
+  }
+
 // Mock the database to use in-memory database for testing
 jest.mock('../db/database', () => {
+  const createInMemoryDb = () => {
+    const db = new (require('better-sqlite3'))(':memory:');
+    initializeSchema(db);
+    return db;
+  };
+
   return {
     DatabaseManager: {
       getInstance: jest.fn(() => ({
-        getDatabase: () => new (require('better-sqlite3'))(':memory:')
+        getDatabase: () => createInMemoryDb()
       }))
     }
   };
@@ -27,36 +74,7 @@ describe('DBAdapter', () => {
     });
     
     // Manually initialize tables
-    mockDb.exec(`
-      CREATE TABLE IF NOT EXISTS players (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        tag TEXT UNIQUE,
-        main_character TEXT,
-        secondary_character TEXT,
-        rating INTEGER DEFAULT 1200,
-        level INTEGER DEFAULT 1,
-        wins INTEGER DEFAULT 0,
-        losses INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-
-    mockDb.exec(`
-      CREATE TABLE IF NOT EXISTS matches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        playerA_id INTEGER NOT NULL,
-        playerB_id INTEGER NOT NULL,
-        scoreA INTEGER NOT NULL,
-        scoreB INTEGER NOT NULL,
-        winner_id INTEGER NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (playerA_id) REFERENCES players (id),
-        FOREIGN KEY (playerB_id) REFERENCES players (id),
-        FOREIGN KEY (winner_id) REFERENCES players (id)
-      )
-    `);
+    initializeSchema(mockDb);
 
     // Create adapter after tables are initialized
     adapter = new DBAdapter();

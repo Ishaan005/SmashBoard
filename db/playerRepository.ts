@@ -104,12 +104,24 @@ export class PlayerRepository {
   }
 
   async delete(id: number): Promise<boolean> {
-    try {
-      const result = this.preparedStatements.delete.run(id);
-      return result.changes > 0;
-    } catch (error) {
-      throw new Error(`Failed to delete player: ${error}`);
-    }
+    const transaction = this.db.transaction(() => {
+      try {
+        // First, delete all matches involving this player
+        const deleteMatchesStmt = this.db.prepare(`
+          DELETE FROM matches 
+          WHERE playerA_id = ? OR playerB_id = ? OR playerC_id = ? OR playerD_id = ?
+        `);
+        deleteMatchesStmt.run(id, id, id, id);
+
+        // Then delete the player
+        const result = this.preparedStatements.delete.run(id);
+        return result.changes > 0;
+      } catch (error) {
+        throw new Error(`Failed to delete player: ${error}`);
+      }
+    });
+
+    return transaction();
   }
 
   private mapRowToPlayer(row: any): Player {

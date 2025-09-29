@@ -314,14 +314,27 @@ export class DBAdapter {
 
   /**
    * Delete a player from the database
+   * This will also delete all matches involving the player
    */
   deletePlayer(id: number): boolean {
-    try {
-      const result = this.preparedStatements.deletePlayer.run(id);
-      return result.changes > 0;
-    } catch (error) {
-      throw new Error(`Failed to delete player: ${error}`);
-    }
+    const transaction = this.db.transaction(() => {
+      try {
+        // First, delete all matches involving this player
+        const deleteMatchesStmt = this.db.prepare(`
+          DELETE FROM matches 
+          WHERE playerA_id = ? OR playerB_id = ? OR playerC_id = ? OR playerD_id = ?
+        `);
+        deleteMatchesStmt.run(id, id, id, id);
+
+        // Then delete the player
+        const result = this.preparedStatements.deletePlayer.run(id);
+        return result.changes > 0;
+      } catch (error) {
+        throw new Error(`Failed to delete player: ${error}`);
+      }
+    });
+
+    return transaction();
   }
 
   /**

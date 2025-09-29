@@ -20,15 +20,53 @@ interface Player {
 type SortField = 'name' | 'rating' | 'level' | 'wins' | 'losses' | 'createdAt';
 type SortDirection = 'asc' | 'desc';
 
+const DEMO_PLAYERS: Player[] = [
+  {
+    id: 1,
+    name: 'Alice Johnson',
+    tag: 'AJ',
+    mainCharacter: 'Singles',
+    rating: 1350,
+    level: 14,
+    wins: 25,
+    losses: 8,
+    createdAt: new Date('2024-01-15')
+  },
+  {
+    id: 2,
+    name: 'Bob Smith',
+    tag: 'BS',
+    mainCharacter: 'Doubles',
+    rating: 1220,
+    level: 12,
+    wins: 18,
+    losses: 12,
+    createdAt: new Date('2024-01-20')
+  },
+  {
+    id: 3,
+    name: 'Carol Wang',
+    tag: 'CW',
+    mainCharacter: 'Mixed',
+    rating: 1180,
+    level: 11,
+    wins: 15,
+    losses: 10,
+    createdAt: new Date('2024-02-01')
+  }
+];
+
 export default function PlayersPage() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isElectron, setIsElectron] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [sortField, setSortField] = useState<SortField>('rating');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<Player | null>(null);
+
+  // Detect if running in Electron renderer via presence of electronAPI
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI;
 
   const [formData, setFormData] = useState({
     name: '',
@@ -41,73 +79,83 @@ export default function PlayersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Initialize app and load players
-  useEffect(() => {
-    const checkElectron = () => {
-      if (typeof window !== 'undefined' && window.electronAPI) {
-        setIsElectron(true);
-      } else {
-        setLoading(false);
-        // Mock data for development
-        setPlayers([
-          {
-            id: 1,
-            name: 'Alice Johnson',
-            tag: 'AJ',
-            mainCharacter: 'Singles',
-            rating: 1350,
-            level: 14,
-            wins: 25,
-            losses: 8,
-            createdAt: new Date('2024-01-15')
-          },
-          {
-            id: 2,
-            name: 'Bob Smith',
-            tag: 'BS',
-            mainCharacter: 'Doubles',
-            rating: 1220,
-            level: 12,
-            wins: 18,
-            losses: 12,
-            createdAt: new Date('2024-01-20')
-          },
-          {
-            id: 3,
-            name: 'Carol Wang',
-            tag: 'CW',
-            mainCharacter: 'Mixed',
-            rating: 1180,
-            level: 11,
-            wins: 15,
-            losses: 10,
-            createdAt: new Date('2024-02-01')
-          }
-        ]);
-      }
-    };
+  // Diagnostics info for display
+  const [diagInfo, setDiagInfo] = useState<{ dbPath: string; playerCount: number | null } | null>(null);
 
-    checkElectron();
-  }, []);
+  const loadPlayers = useCallback(async (): Promise<Player[]> => {
+    if (typeof window === 'undefined' || !window.electronAPI) {
+      return [];
+    }
 
-  const loadPlayers = useCallback(async () => {
-    if (!window.electronAPI) return;
-
+    setLoading(true);
     try {
-      setLoading(true);
       const playersData = await window.electronAPI.db.getPlayers();
       setPlayers(playersData);
+      return playersData;
     } catch (error) {
       console.error('Error loading players:', error);
       showMessage('error', 'Failed to load players');
+      return [];
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    loadPlayers();
-  }, [loadPlayers]);
+    // Add a small delay to ensure preload script has fully loaded
+    const checkElectronAPI = async () => {
+      console.log('PlayersPage electronAPI:', window.electronAPI);
+      console.log('PlayersPage isElectron flag:', (window as typeof window & { isElectron?: boolean }).isElectron);
+      console.log('All window properties:', Object.keys(window));
+      
+      // Write to log file for debugging
+      try {
+        const logData = {
+          timestamp: new Date().toISOString(),
+          hasElectronAPI: !!window.electronAPI,
+          hasIsElectronFlag: !!(window as typeof window & { isElectron?: boolean }).isElectron,
+          windowKeys: Object.keys(window).slice(0, 20) // First 20 keys only
+        };
+        console.log('DEBUG LOG:', JSON.stringify(logData, null, 2));
+      } catch (e) {
+        console.error('Failed to create debug log:', e);
+      }
+      
+      // Try multiple detection methods
+      const hasElectronAPI = typeof window !== 'undefined' && !!window.electronAPI;
+      const hasElectronFlag = typeof window !== 'undefined' && !!(window as typeof window & { isElectron?: boolean }).isElectron;
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      
+      console.log('Detection results:', { hasElectronAPI, hasElectronFlag, userAgent });
+      
+      if (hasElectronAPI && window.electronAPI?.diagnostics) {
+        try {
+          const status = await window.electronAPI.diagnostics.getStatus();
+          console.log('Database diagnostics:', status.dbPath, 'playerCount:', status.playerCount);
+          setDiagInfo({ dbPath: status.dbPath, playerCount: status.playerCount });
+        } catch (err) {
+          console.error('Diagnostics error:', err);
+          setDiagInfo({ dbPath: 'Error loading diagnostics', playerCount: null });
+        }
+      } else if (!hasElectronAPI) {
+        console.warn('PlayersPage: running in demo mode - no electronAPI');
+        setDiagInfo({ dbPath: 'Demo mode - no database', playerCount: null });
+      }
+      if (isElectron) {
+        const data = await loadPlayers();
+        if (data.length === 0) {
+          setPlayers([...DEMO_PLAYERS]);
+        }
+      } else {
+        setPlayers([...DEMO_PLAYERS]);
+        setLoading(false);
+      }
+    };
+
+    // Try immediately and also after a delay
+    checkElectronAPI();
+    setTimeout(checkElectronAPI, 500);
+  }, [loadPlayers, isElectron]);
 
   // Filtered and sorted players
   const filteredAndSortedPlayers = useMemo(() => {
@@ -367,14 +415,14 @@ export default function PlayersPage() {
               </p>
             </div>
             <div className="flex items-center space-x-4">
-              <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                isElectron 
-                  ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300'
-                  : 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300'
-              }`}>
-                <div className={`w-2 h-2 rounded-full mr-2 ${isElectron ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
-                {isElectron ? 'Connected' : 'Demo Mode'}
-              </span>
+                <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                  isElectron
+                    ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300'
+                    : 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-300'
+                }`}>
+                  <div className={`w-2 h-2 rounded-full mr-2 ${isElectron ? 'bg-green-500' : 'bg-yellow-500'}`}></div>
+                  {isElectron ? 'Connected' : 'Demo Mode'}
+                </span>
               <Link
                 href="/"
                 className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-4 rounded-lg transition-colors"

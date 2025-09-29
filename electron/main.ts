@@ -6,6 +6,7 @@ import { DBAdapter } from '../db/adapter';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as url from 'url';
+import { DatabaseSeeder } from '../db/seed';
 
 class Main {
   private mainWindow: BrowserWindow | null = null;
@@ -17,6 +18,13 @@ class Main {
     // Initialize database
     console.log('Initializing SmashBoard database...');
     this.dbAdapter = new DBAdapter();
+
+    // Seed the database if it's empty
+    const players = this.dbAdapter.getPlayers();
+    if (players.length === 0) {
+      console.log('Database is empty, seeding with sample data...');
+      DatabaseSeeder.seed();
+    }
   }
 
   public init(): void {
@@ -81,7 +89,7 @@ class Main {
           return;
         }
         
-        const filePath = path.join(outPath, pathname);
+        let filePath = path.join(outPath, pathname);
         console.log(`HTTP request: ${req.url} -> ${filePath}`);
         
         // Security check
@@ -92,12 +100,43 @@ class Main {
           return;
         }
 
-        // Check if file exists
+        const resolveHtmlFallback = () => {
+          const htmlPath = `${filePath}.html`;
+          if (fs.existsSync(htmlPath) && fs.statSync(htmlPath).isFile()) {
+            filePath = htmlPath;
+            return true;
+          }
+          return false;
+        };
+
+        const ensureIndexFile = () => {
+          const indexPath = path.join(filePath, 'index.html');
+          if (fs.existsSync(indexPath) && fs.statSync(indexPath).isFile()) {
+            filePath = indexPath;
+            return true;
+          }
+          return false;
+        };
+
         if (!fs.existsSync(filePath)) {
-          console.error(`File not found: ${filePath}`);
-          res.writeHead(404);
-          res.end('Not Found');
-          return;
+          if (!resolveHtmlFallback()) {
+            console.error(`File not found: ${filePath}`);
+            res.writeHead(404);
+            res.end('Not Found');
+            return;
+          }
+        } else {
+          const stats = fs.statSync(filePath);
+          if (stats.isDirectory()) {
+            if (!ensureIndexFile()) {
+              if (!resolveHtmlFallback()) {
+                console.error(`Directory without index: ${filePath}`);
+                res.writeHead(404);
+                res.end('Not Found');
+                return;
+              }
+            }
+          }
         }
 
         // Determine content type
@@ -116,6 +155,8 @@ class Main {
         
         const contentType = contentTypes[ext] || 'application/octet-stream';
         
+        console.log(`Serving file: ${filePath}`);
+
         try {
           const content = fs.readFileSync(filePath);
           res.writeHead(200, { 'Content-Type': contentType });
@@ -148,6 +189,18 @@ class Main {
   private createWindow(): void {
     console.log('Creating Electron window...');
     
+    // Determine preload script path for both dev and production
+    let preloadPath: string;
+    if (isDev) {
+      preloadPath = path.join(__dirname, 'preload.js');
+    } else {
+      // In production, the preload file is in Resources/app/dist/electron/preload.js
+      preloadPath = path.join(process.resourcesPath, 'app', 'dist', 'electron', 'preload.js');
+    }
+    
+    console.log(`Preload script path: ${preloadPath}`);
+    console.log(`Preload script exists: ${fs.existsSync(preloadPath)}`);
+    
     this.mainWindow = new BrowserWindow({
       width: 1200,
       height: 800,
@@ -156,7 +209,7 @@ class Main {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        preload: path.join(__dirname, 'preload.js'),
+        preload: preloadPath,
         webSecurity: true,
       },
       titleBarStyle: 'default',
@@ -168,8 +221,8 @@ class Main {
       console.log('Window ready, showing application');
       this.mainWindow?.show();
       
+      // Open DevTools in development mode
       if (isDev) {
-        console.log('Development mode: Opening DevTools');
         this.mainWindow?.webContents.openDevTools();
       }
     });
@@ -192,42 +245,6 @@ class Main {
       
       console.log('Production mode: Loading from local HTTP server');
       console.log(`Start URL: ${startUrl}`);
-      
-      // Detailed file system check
-      const appPath = app.getAppPath();
-      console.log('=== File System Debug ===');
-      console.log(`App path: ${appPath}`);
-      console.log(`Server port: ${this.serverPort}`);
-      console.log(`App path exists: ${fs.existsSync(appPath)}`);
-      
-      if (fs.existsSync(appPath)) {
-        const rootFiles = fs.readdirSync(appPath);
-        console.log(`Root directory contents (${rootFiles.length} items): ${rootFiles.join(', ')}`);
-        
-        const outPath = path.join(appPath, 'out');
-        console.log(`Out directory path: ${outPath}`);
-        console.log(`Out directory exists: ${fs.existsSync(outPath)}`);
-        
-        if (fs.existsSync(outPath)) {
-          const outFiles = fs.readdirSync(outPath);
-          console.log(`Out directory contents (${outFiles.length} items): ${outFiles.join(', ')}`);
-          
-          const indexPath = path.join(outPath, 'index.html');
-          console.log(`Index.html exists: ${fs.existsSync(indexPath)}`);
-          if (fs.existsSync(indexPath)) {
-            const stats = fs.statSync(indexPath);
-            console.log(`Index.html size: ${stats.size} bytes`);
-            console.log(`Index.html modified: ${stats.mtime}`);
-          } else {
-            console.error('❌ index.html NOT FOUND!');
-          }
-        } else {
-          console.error('❌ out directory NOT FOUND!');
-        }
-      } else {
-        console.error('❌ App path does not exist!');
-      }
-      console.log('=== End File System Debug ===');
     }
 
     console.log(`🚀 Loading application from: ${startUrl}`);
@@ -441,6 +458,38 @@ class Main {
         console.error('❌ Error getting leaderboard:', error);
         return [];
       }
+    });
+
+    ipcMain.handle('diagnostics:getStatus', async () => {
+      const dbManager = DatabaseManager.getInstance();
+      const dbPath = dbManager.getDatabasePath();
+      const dbExists = fs.existsSync(dbPath);
+      const dbStats = dbExists ? fs.statSync(dbPath) : null;
+
+      let playerCount: number | null = null;
+      let dbError: string | null = null;
+      try {
+        playerCount = this.dbAdapter.getPlayers().length;
+      } catch (error) {
+        dbError = error instanceof Error ? error.message : 'Unknown error';
+      }
+
+      const serverInfo = this.server ? this.server.address() : null;
+
+      return {
+        timestamp: new Date().toISOString(),
+        isDev,
+        electronVersion: process.versions.electron,
+        nodeVersion: process.versions.node,
+        chromeVersion: process.versions.chrome,
+        dbPath,
+        dbExists,
+        dbSize: dbStats?.size ?? null,
+        playerCount,
+        dbError,
+        serverPort: this.serverPort,
+        serverAddress: typeof serverInfo === 'object' && serverInfo ? `${serverInfo.address}:${serverInfo.port}` : serverInfo,
+      };
     });
 
     console.log('✅ IPC channels setup complete');

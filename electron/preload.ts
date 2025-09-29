@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { Player } from '../db/adapter';
+import type { Player } from '../db/adapter';
+
+console.log('SmashBoard preload script initializing...');
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -41,7 +43,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // App operations
   getVersion: () => process.versions.electron,
   getPlatform: () => process.platform,
+  diagnostics: {
+    getStatus: () => ipcRenderer.invoke('diagnostics:getStatus'),
+  },
 });
+
+// Expose a primitive flag for renderer detection
+contextBridge.exposeInMainWorld('isElectron', true);
+
+console.log('SmashBoard preload script completed - electronAPI ready');
 
 // Database API interface
 export interface DatabaseAPI {
@@ -56,10 +66,30 @@ export interface DatabaseAPI {
   getLeaderboard: () => Promise<Player[]>;
 }
 
+export interface DiagnosticsStatus {
+  timestamp: string;
+  isDev: boolean;
+  electronVersion: string;
+  nodeVersion: string;
+  chromeVersion: string;
+  dbPath: string;
+  dbExists: boolean;
+  dbSize: number | null;
+  playerCount: number | null;
+  dbError: string | null;
+  serverPort: number;
+  serverAddress: string | null;
+}
+
+export interface DiagnosticsAPI {
+  getStatus: () => Promise<DiagnosticsStatus>;
+}
+
 // TypeScript type definition for the exposed API
 export interface ElectronAPI {
   // New organized database API
   db: DatabaseAPI;
+  diagnostics: DiagnosticsAPI;
   
   // Legacy API for backward compatibility
   getPlayers: () => Promise<Player[]>;

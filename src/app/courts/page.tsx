@@ -5,6 +5,8 @@ import {
   generateWhatsAppMessage
 } from './lib/courtUtils';
 import Link from 'next/link';
+import { useEffect, useState } from 'react';
+import type { DiagnosticsStatus } from '@/types/electron';
 import type { Court } from './components/types';
 import { useCourtsManager } from './hooks/useCourtsManager';
 import AutoAllocation from './components/AutoAllocation';
@@ -24,6 +26,8 @@ export default function CourtsPage() {
     useSensor(PointerSensor),
     useSensor(KeyboardSensor)
   );
+  const [diagnostics, setDiagnostics] = useState<DiagnosticsStatus | null>(null);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
   const {
     players,
     courts,
@@ -47,7 +51,64 @@ export default function CourtsPage() {
     handleAutoAllocation,
     clearAllCourts,
     resetCourtSystem,
+    loadInfo,
   } = useCourtsManager();
+
+  useEffect(() => {
+    if (!loading) {
+      return;
+    }
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleRetry = (delay = 500) => {
+      if (retryTimer !== null || cancelled) {
+        return;
+      }
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        attemptFetch();
+      }, delay);
+    };
+
+    const attemptFetch = async () => {
+      if (cancelled) {
+        return;
+      }
+
+      setDiagnosticsError(null);
+
+      if (typeof window === 'undefined' || !window.electronAPI?.diagnostics?.getStatus) {
+        scheduleRetry();
+        return;
+      }
+
+      try {
+        const status = await window.electronAPI.diagnostics.getStatus();
+        if (!cancelled) {
+          setDiagnostics(status);
+          console.info('[Diagnostics]', status);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : String(err);
+          setDiagnosticsError(message);
+          console.error('[Diagnostics] Failed to fetch status', err);
+        }
+        scheduleRetry(1000);
+      }
+    };
+
+    attemptFetch();
+
+    return () => {
+      cancelled = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [loading]);
 
   const copyToClipboard = async () => {
     const message = generateWhatsAppMessage(courts, queue, matchType, currentTime);
@@ -63,9 +124,40 @@ export default function CourtsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 flex items-center justify-center">
-        <div className="text-center">
+        <div className="text-center max-w-md mx-auto space-y-4">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
           <p className="text-gray-600 dark:text-gray-400">Loading courts...</p>
+          {(diagnostics || diagnosticsError) && (
+            <div className="text-left bg-white/80 dark:bg-gray-800/80 rounded-lg shadow p-4 text-sm">
+              <h2 className="text-gray-800 dark:text-gray-200 font-semibold mb-2">Diagnostics</h2>
+              {diagnosticsError && (
+                <p className="text-red-600 dark:text-red-400 mb-2">{diagnosticsError}</p>
+              )}
+              {diagnostics && (
+                <ul className="space-y-1 text-gray-700 dark:text-gray-300">
+                  <li><span className="font-medium">Timestamp:</span> {diagnostics.timestamp}</li>
+                  <li><span className="font-medium">Environment:</span> {diagnostics.isDev ? 'Development' : 'Production'}</li>
+                  <li><span className="font-medium">DB Path:</span> {diagnostics.dbPath}</li>
+                  <li><span className="font-medium">DB Exists:</span> {diagnostics.dbExists ? 'Yes' : 'No'}</li>
+                  <li><span className="font-medium">DB Size:</span> {diagnostics.dbSize != null ? `${diagnostics.dbSize} bytes` : 'Unknown'}</li>
+                  <li><span className="font-medium">Players Found:</span> {diagnostics.playerCount ?? 'Unknown'}</li>
+                  <li><span className="font-medium">DB Error:</span> {diagnostics.dbError ?? 'None'}</li>
+                  <li><span className="font-medium">Server:</span> {diagnostics.serverAddress ?? `http://127.0.0.1:${diagnostics.serverPort}`}</li>
+                  {loadInfo && (
+                    <>
+                      <li><span className="font-medium">Load Attempts:</span> {loadInfo.attempts}</li>
+                      <li><span className="font-medium">Last Started:</span> {loadInfo.lastStarted ?? 'Never'}</li>
+                      <li><span className="font-medium">Last Finished:</span> {loadInfo.lastFinished ?? 'Never'}</li>
+                      <li><span className="font-medium">Last Count:</span> {loadInfo.lastCount ?? 'Unknown'}</li>
+                      <li><span className="font-medium">Last Error:</span> {loadInfo.lastError ?? 'None'}</li>
+                      <li><span className="font-medium">Electron Bridge Detected:</span> {loadInfo.fromElectron ? 'Yes' : 'No'}</li>
+                      <li><span className="font-medium">Fallback Triggered:</span> {loadInfo.fallbackTriggered ? 'Yes' : 'No'}</li>
+                    </>
+                  )}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

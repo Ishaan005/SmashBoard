@@ -1,8 +1,46 @@
-import { useEffect, useState } from 'react';
+ 'use client';
+import { useEffect, useState, useCallback } from 'react';
 import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
 import type { Player, Court, QueueEntry, DragData } from '../components/types';
 
+type CourtsDebugState = {
+  lastPlayerLoad?: {
+    timestamp: string;
+    count?: number;
+    error?: string;
+    source: 'electron' | 'fallback';
+  };
+  status?: {
+    loading: boolean;
+    playerCount: number;
+    attempts: number;
+    lastError: string | null;
+    fallbackTriggered: boolean;
+    lastUpdated: string;
+  };
+};
+
+declare global {
+  interface Window {
+    __SMASHBOARD_DEBUG__?: CourtsDebugState;
+  }
+}
+
+const mergeDebugState = (patch: Partial<CourtsDebugState>) => {
+  if (typeof window === 'undefined' || !patch) {
+    return;
+  }
+
+  const prevState = window.__SMASHBOARD_DEBUG__ ?? {};
+  window.__SMASHBOARD_DEBUG__ = {
+    ...prevState,
+    ...patch,
+  };
+};
+
 export function useCourtsManager(numCourtsDefault = 4, matchTypeDefault: 'singles' | 'doubles' = 'doubles') {
+  const isElectronEnvironment = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
+
   // State
   const [players, setPlayers] = useState<Player[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
@@ -12,6 +50,15 @@ export function useCourtsManager(numCourtsDefault = 4, matchTypeDefault: 'single
   const [error, setError] = useState<string | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [matchType, setMatchType] = useState<'singles' | 'doubles'>(matchTypeDefault);
+  const [loadInfo, setLoadInfo] = useState({
+    attempts: 0,
+    lastStarted: null as string | null,
+    lastFinished: null as string | null,
+    lastCount: null as number | null,
+    lastError: null as string | null,
+    fromElectron: false,
+    fallbackTriggered: false,
+  });
 
   // Effects
   useEffect(() => {
@@ -43,6 +90,19 @@ export function useCourtsManager(numCourtsDefault = 4, matchTypeDefault: 'single
   useEffect(() => {
     localStorage.setItem('smashboard-queue', JSON.stringify(queue));
   }, [queue]);
+
+  useEffect(() => {
+    mergeDebugState({
+      status: {
+        loading,
+        playerCount: players.length,
+        attempts: loadInfo.attempts,
+        lastError: loadInfo.lastError,
+        fallbackTriggered: loadInfo.fallbackTriggered,
+        lastUpdated: new Date().toISOString(),
+      }
+    });
+  }, [loading, players.length, loadInfo.attempts, loadInfo.lastError, loadInfo.fallbackTriggered]);
 
   useEffect(() => {
     const savedCourts = localStorage.getItem('smashboard-courts');
@@ -78,35 +138,118 @@ export function useCourtsManager(numCourtsDefault = 4, matchTypeDefault: 'single
     }
   }, [numCourts]);
 
-  useEffect(() => {
-    const checkElectronAndLoadPlayers = async () => {
-      if (typeof window !== 'undefined' && window.electronAPI) {
-        await loadPlayers();
-      } else {
-        setLoading(false);
-      }
-    };
-    checkElectronAndLoadPlayers();
-  }, []);
+  const loadPlayers = useCallback(async () => {
+    if (typeof window === 'undefined' || !window.electronAPI) {
+      return;
+    }
 
-  // Handlers
-  const loadPlayers = async () => {
     try {
       setLoading(true);
-      if (typeof window !== 'undefined' && window.electronAPI) {
-        const playersData = await window.electronAPI.db.getPlayers();
-        const playersWithElo = playersData.map((player: Player & { rating: number }) => ({
-          ...player,
-          elo: player.rating
-        }));
-        setPlayers(playersWithElo);
-      }
-    } catch {
-      setError('Failed to load players');
+      setLoadInfo(prev => ({
+        ...prev,
+        attempts: prev.attempts + 1,
+        lastStarted: new Date().toISOString(),
+        lastError: null,
+        fromElectron: true,
+      }));
+      const playersData = await window.electronAPI.db.getPlayers();
+      const playersWithElo = playersData.map((player: Player & { rating: number }) => ({
+        ...player,
+        elo: player.rating
+      }));
+      setPlayers(playersWithElo);
+      setError(null);
+      setLoadInfo(prev => ({
+        ...prev,
+        lastFinished: new Date().toISOString(),
+        lastCount: playersWithElo.length,
+      }));
+      console.info('[Courts] Loaded players', playersWithElo.length);
+      mergeDebugState({
+        lastPlayerLoad: {
+          timestamp: new Date().toISOString(),
+          count: playersWithElo.length,
+          source: 'electron',
+        }
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error('[Courts] Failed to load players', err);
+      setError(`Failed to load players: ${message}`);
+      setLoadInfo(prev => ({
+        ...prev,
+        lastFinished: new Date().toISOString(),
+        lastError: message,
+      }));
+      mergeDebugState({
+        lastPlayerLoad: {
+          timestamp: new Date().toISOString(),
+          error: message,
+          source: 'electron',
+        }
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let hasLoadedFromElectron = false;
+    let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleFallback = () => {
+      if (isElectronEnvironment || fallbackTimer !== null) {
+        return;
+      }
+      fallbackTimer = setTimeout(() => {
+        if (cancelled || hasLoadedFromElectron) {
+          return;
+        }
+        setLoading(false);
+        setLoadInfo(prev => ({
+          ...prev,
+          fallbackTriggered: true,
+          lastFinished: new Date().toISOString(),
+        }));
+      }, 1500);
+    };
+
+    const attemptLoad = () => {
+      if (cancelled || hasLoadedFromElectron) {
+        return;
+      }
+
+      if (window.electronAPI) {
+        hasLoadedFromElectron = true;
+        if (fallbackTimer !== null) {
+          clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
+        loadPlayers().catch(() => {});
+        return;
+      }
+
+      scheduleFallback();
+      setTimeout(attemptLoad, isElectronEnvironment ? 250 : 200);
+    };
+
+    attemptLoad();
+
+    return () => {
+      cancelled = true;
+      if (fallbackTimer !== null) {
+        clearTimeout(fallbackTimer);
+      }
+    };
+  }, [isElectronEnvironment, loadPlayers]);
+
+  // Handlers
 
   // Drag and Drop functionality
   const handleDragStart = (event: DragStartEvent) => {
@@ -262,6 +405,7 @@ export function useCourtsManager(numCourtsDefault = 4, matchTypeDefault: 'single
     matchType,
     setMatchType,
     loadPlayers,
+  loadInfo,
     handleDragStart,
     handleDragEnd,
     removePlayerFromCourt,
