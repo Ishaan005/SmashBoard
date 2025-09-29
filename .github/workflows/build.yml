@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     runs-on: ${{ matrix.os }}
@@ -71,7 +75,7 @@ jobs:
         name: macos-release
         path: |
           release/*.dmg
-          release/*.zip
+          release/*.dmg.blockmap
         retention-days: 7
 
     - name: Upload Windows artifacts
@@ -81,7 +85,7 @@ jobs:
         name: windows-release
         path: |
           release/*.exe
-          release/*.zip
+          release/*.exe.blockmap
         retention-days: 7
 
   release:
@@ -116,8 +120,6 @@ jobs:
     - name: Create Release
       id: create_release
       uses: softprops/action-gh-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: v${{ steps.package-version.outputs.version }}-${{ github.run_number }}
         name: SmashBoard v${{ steps.package-version.outputs.version }}-${{ github.run_number }}
@@ -125,9 +127,7 @@ jobs:
         prerelease: true
         files: |
           release/macos/*.dmg
-          release/macos/*.zip
           release/windows/*.exe
-          release/windows/*.zip
         body: |
           ## Changes
           - Automated build from commit ${{ github.sha }}
