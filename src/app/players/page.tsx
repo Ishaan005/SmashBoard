@@ -79,9 +79,6 @@ export default function PlayersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Diagnostics info for display
-  const [diagInfo, setDiagInfo] = useState<{ dbPath: string; playerCount: number | null } | null>(null);
-
   const loadPlayers = useCallback(async (): Promise<Player[]> => {
     if (typeof window === 'undefined' || !window.electronAPI) {
       return [];
@@ -132,14 +129,11 @@ export default function PlayersPage() {
         try {
           const status = await window.electronAPI.diagnostics.getStatus();
           console.log('Database diagnostics:', status.dbPath, 'playerCount:', status.playerCount);
-          setDiagInfo({ dbPath: status.dbPath, playerCount: status.playerCount });
         } catch (err) {
           console.error('Diagnostics error:', err);
-          setDiagInfo({ dbPath: 'Error loading diagnostics', playerCount: null });
         }
       } else if (!hasElectronAPI) {
         console.warn('PlayersPage: running in demo mode - no electronAPI');
-        setDiagInfo({ dbPath: 'Demo mode - no database', playerCount: null });
       }
       if (isElectron) {
         const data = await loadPlayers();
