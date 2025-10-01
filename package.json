@@ -1,8 +1,8 @@
 {
   "name": "smashboard",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Ultimate Badminton Club Manager - Track players, manage matches, courts, and calculate ELO ratings",
-  "author": "SmashBoard Team",
+  "author": "Swithin",
   "private": true,
   "main": "dist/electron/main.js",
   "homepage": "./",
@@ -80,7 +80,10 @@
       "target": [
         {
           "target": "dmg",
-          "arch": ["x64", "arm64"]
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ]
     },
@@ -88,7 +91,10 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64", "ia32"]
+          "arch": [
+            "x64",
+            "ia32"
+          ]
         }
       ],
       "requestedExecutionLevel": "asInvoker"
