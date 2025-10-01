@@ -133,10 +133,23 @@ jobs:
           - Automated build from commit ${{ github.sha }}
           
           ## Downloads
-          - **macOS**: Download the `.dmg` file
-          - **Windows**: Download the `.exe` installer
+          
+          ### Windows
+          - **SmashBoard Setup 0.1.0.exe** - Universal installer for all Windows machines
+          
+          ### macOS
+          - **SmashBoard-0.1.0.dmg** - For Intel-based Macs (older MacBooks)
+          - **SmashBoard-0.1.0-arm64.dmg** - For Apple Silicon Macs (M1/M2/M3)
+          
+          **Not sure which Mac version?** Check Apple Menu > About This Mac:
+          - Intel processor → use SmashBoard-0.1.0.dmg
+          - Apple M1/M2/M3 → use SmashBoard-0.1.0-arm64.dmg
+          
+          ### Security Notes
+          - **Windows**: Click "More info" then "Run anyway" if Windows Defender blocks the app
+          - **macOS**: Right-click and select "Open" if you get a security warning
           
           Built with:
           - Node.js 20
-          - Latest Electron
-          - SQLite included for both platforms
+          - Electron 38.2.0
+          - SQLite included for all platforms
