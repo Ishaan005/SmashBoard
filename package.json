@@ -1,6 +1,6 @@
 {
   "name": "smashboard",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Ultimate Badminton Club Manager - Track players, manage matches, courts, and calculate ELO ratings",
   "author": "SmashBoard Team",
   "private": true,
